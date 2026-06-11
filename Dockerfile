@@ -216,6 +216,13 @@ RUN chmod -R a+rX /opt/hermes && \
 # this a fast (~1s) egg-link creation with no resolution or downloads.
 RUN uv pip install --no-cache-dir --no-deps -e "."
 
+# ---------- Bake the mcp SDK refresh-token-retention fix (deploy fork) ----------
+# RFC 6749 s6: a refresh response MAY omit refresh_token; the client MUST keep
+# the existing one. The pinned mcp SDK drops it, killing Guru MCP after ~2h. The
+# source-side storage half is in tools/mcp_oauth.py; this bakes the SDK in-memory
+# half. Fails the build loudly if the anchor is gone (mcp pin bumped → re-derive).
+RUN /opt/hermes/.venv/bin/python /opt/hermes/docker/patches/mcp_rt_retention.py
+
 # ---------- Bake build-time git revision ----------
 # .dockerignore excludes .git, so `git rev-parse HEAD` from inside the
 # container always returns nothing — meaning `hermes dump` reports

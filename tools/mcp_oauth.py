@@ -295,6 +295,16 @@ class HermesTokenStorage:
                 # Mock tokens or unusual shapes: skip the expires_at write
                 # rather than fail persistence.
                 pass
+        # RFC 6749 s6 refresh-token retention: a refresh response MAY omit
+        # refresh_token, in which case the client MUST keep the existing one.
+        # Guru's token endpoint omits it; persisting the response verbatim
+        # clobbers the stored RT and strands us with un-refreshable 1-hour
+        # tokens. (The SDK in-memory half is baked in via the Dockerfile —
+        # docker/patches/mcp_rt_retention.py.)
+        if "refresh_token" not in payload:
+            existing = _read_json(self._tokens_path())
+            if existing and existing.get("refresh_token"):
+                payload["refresh_token"] = existing["refresh_token"]
         _write_json(self._tokens_path(), payload)
         logger.debug("OAuth tokens saved for %s", self._server_name)
 
