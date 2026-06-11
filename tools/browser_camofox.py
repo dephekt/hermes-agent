@@ -79,6 +79,15 @@ def check_camofox_available() -> bool:
     try:
         resp = requests.get(f"{url}/health", timeout=5)
         if resp.status_code == 200 and not _vnc_url_checked:
+            # CAMOFOX_VNC_PUBLIC_URL override: some camofox builds omit vncPort
+            # from /health, so the stock code below never sets _vnc_url. When the
+            # env var is set, share it (e.g. the public, SSO-gated URL) as the
+            # live-view link regardless of what /health reports.
+            _pub = os.getenv("CAMOFOX_VNC_PUBLIC_URL")
+            if _pub:
+                _vnc_url = _pub.rstrip("/")
+                _vnc_url_checked = True
+                return True
             try:
                 data = resp.json()
                 vnc_port = data.get("vncPort")
