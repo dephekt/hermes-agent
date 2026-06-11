@@ -1,0 +1,82 @@
+name: fork image
+
+# Fork-only image build → ghcr.io/dephekt/hermes-agent. This is a SEPARATE file
+# from upstream's docker-publish.yml (which self-disables in forks via a
+# `github.repository ==` guard), so it is never touched when syncing upstream.
+# amd64 only (our deploy host is x86_64); pushes :latest and :<sha> using the
+# built-in GITHUB_TOKEN — no Docker Hub secrets needed.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'Dockerfile'
+      - 'docker/**'
+      - '.github/workflows/fork-image.yml'
+      - '.github/actions/hermes-smoke-test/**'
+
+permissions:
+  contents: read
+  packages: write          # elevates per-workflow even though the repo default is "read"
+
+concurrency:
+  group: fork-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/dephekt/hermes-agent
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Build (amd64, load for smoke test)
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: ${{ env.IMAGE_NAME }}:test
+          build-args: |
+            HERMES_GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=fork-amd64
+          cache-to: type=gha,mode=max,scope=fork-amd64
+
+      - name: Smoke test
+        uses: ./.github/actions/hermes-smoke-test
+        with:
+          image: ${{ env.IMAGE_NAME }}:test
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push (amd64)
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            HERMES_GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=fork-amd64
+          cache-to: type=gha,mode=max,scope=fork-amd64
